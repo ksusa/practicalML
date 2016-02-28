@@ -1,0 +1,170 @@
+---
+title: "PML_Project_Report"
+author: "Oksana Volnianska"
+date: "February 28, 2016"
+output: html_document
+---
+# Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+# Task
+Goal: using the data from accelerometers placed on the belt, forearm, arm, and dumbell of six participants to predict how well they were doing the exercise in terms of the classification. 
+
+### Libraries
+
+```{r}
+library(caret)
+library(corrplot)
+library(kernlab)
+library(knitr)
+library(randomForest)
+```
+# Results
+## Loading and Cleaning Data
+### download data
+```{r, eval=FALSE}
+d1<- download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv" , 
+              destfile = "pml-training.csv", method = "curl")
+d2 <- download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv" , 
+                    destfile = "pml-testing.csv", method = "curl")
+
+dateDownloaded <- date()
+```
+Read the csv files for training and test
+```{r}
+data_training <- read.csv("pml-training.csv", na.strings= c("NA",""," "))
+data_test <- read.csv("pml-testing.csv", na.strings= c("NA",""," "))
+```
+### Cleaning data
+There was a lot of NA values in the data which would create a lot of noise for the model. NAs columns were removed from the data set. The first 8 columns that acted as identifiers (time stamps, names, ...) for were also removed.
+```{r}
+# clean the data_training and data_testing by removing columns with NA
+data_training_clean1 <- apply(data_training, 2, function(x) {sum(is.na(x))})
+data_training_clean2 <- data_training[,which(data_training_clean1 == 0)]
+# remove  columns such as  timestamps , name
+data_training_clean <- data_training_clean2[8:length(data_training_clean2)]
+# for data test
+
+data_test_clean1 <- apply(data_test, 2, function(x) {sum(is.na(x))})
+data_test_clean2 <- data_test[,which(data_test_clean1 == 0)]
+data_test_clean <- data_test_clean2[8:length(data_test_clean2)]
+```
+```{r}
+
+# str(data_training_clean) # view data frame
+```
+## Modeling
+
+The test data set was split  into  two partition : training and cross validation sets (below it is referrer as mytest cross validation) in a 60:40 ratio in order to train the model and test.
+
+```{r}
+# Create two partitions correspond to splitting of data_training_clean  into training and cross validation
+# (mytest_crossval),
+#training set is equal 60 %
+inTrain <- createDataPartition(y = data_training_clean$classe, p = 0.6, list = FALSE)
+mytraining <- data_training_clean[inTrain, ]
+mytest_crossval <- data_training_clean[-inTrain, ]
+
+#dimensions of mytraining
+dim(mytraining)
+
+```
+It one can see that 53 variables can be as predictors
+## Model 1
+In project was use a random forest method  to predict the classification because it has methods for balancing error in class population unbalanced data sets. 
+
+A correllation plot was build in order to see how strong the  corelation between variables that will consider as independented.
+
+```{r}
+# plot a correlation matrix
+corMatrix1 <- cor(mytraining[, -length(mytraining)])
+#correspond plot
+corrplot(corMatrix1, order = "FPC", method = "circle", type = "lower", tl.cex = 0.7,  tl.col = rgb(0, 0, 0))
+```
+Fig. 1 Correlations plot for variables from mytraning data set.
+
+From Fig. 1 one can see that only some variables have high correlation
+with other  variables.
+```{r}
+# Model 1 using all 53 variables as predictors
+model <- randomForest(classe ~ .,  data = mytraining)
+```
+## Model 2
+
+```{r}
+# Model 2 using variables wich low correlation with other as predictors
+# cutoff high correlation estimated of 0.85
+corHigh<-findCorrelation(corMatrix1, 0.85)
+corHigh
+
+#remove colomn for variables  with high correlation from mytraining
+highCorrem <- row.names(corMatrix1)[corHigh]
+highCorrem 
+mytraining1 <- mytraining[,   -corHigh]
+dim(mytraining1)
+
+corMatrix2 <- cor(mytraining1[, -length(mytraining1)])
+corrplot(corMatrix2, order = "FPC", method = "circle", type = "lower", tl.cex = 0.8,  tl.col = rgb(0, 0, 0))
+```
+Fig. 2 Correlations plot for variables from mytraning1 data set.
+```{r}
+
+model1<-randomForest(classe ~., data = mytraining1)
+```
+## Model 3
+```{r}
+# Model 3 using 20 importancing variables as predicors
+#Build the accuracy and gini graphs
+varImpPlot(model1)
+```
+Fig. 3 Accuracy graph for model 1.
+```{r}
+newRowNames <- rownames(varImp(model1)[])
+newRowNames1 <- c(newRowNames[1:21],"classe")
+mytraining2 <- mytraining1[newRowNames1]
+
+dim(mytraining2)
+model2<-randomForest(classe ~., data = mytraining2)
+```
+
+### OOB error 
+```{r}
+model
+model1
+model2
+```
+It can see that for all cases OOB errors are 0.65, 0.89, 3 % for model 1, model 2, and model 3, respectively.
+
+
+## Cross- validation
+```{r}
+# crossvalidate these models using the remaining 40% of data sets
+
+predictCrossVal <- predict(model, mytest_crossval)
+confusionMatrix(mytest_crossval$classe, predictCrossVal)
+
+predictCrossVal1 <- predict(model1, mytest_crossval)
+confusionMatrix(mytest_crossval$classe, predictCrossVal1)
+
+predictCrossVal2 <- predict(model2, mytest_crossval)
+confusionMatrix(mytest_crossval$classe, predictCrossVal2)
+
+```
+Prediction accuracy are 99.4 , 99.2, 97.1 % , for model 1, model 2, , and model 3, respectively. All cases proved very robust and adequete to predict new data.
+
+## Predictions
+```{r}
+# predict the classes of the test sets
+#model 1
+predictTest <- predict(model, data_test_clean)
+predictTest
+# model 2
+predictTest1 <- predict(model1, data_test_clean)
+predictTest1
+#model 3
+predictTest2 <- predict(model2, data_test_clean)
+predictTest2
+
+```
+### Conclusions
+Three models predicted same answers. Analysis of same answers from three models it is  possible to accurately predict how well a person is preforming an excercise.
